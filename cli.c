@@ -8,6 +8,7 @@
 #include <unistd.h>     /* `read()` and `write()` functions */
 #include <dirent.h>     /* format of directory entries */
 #include <sys/stat.h>   /* stat information about files attributes */
+#include <time.h>
 
 #define MAX_SIZE 2048
 #define MAX_LINE 256
@@ -23,6 +24,7 @@ void chat_handler(int);
 void printInfo();
 void connection_establisher(int);
 void broadcast_handler(int);
+void post_handler(int);
 
 int main(int argc, char **argv){
   int tcp_fd, udp_fd, chat_svr_fd, connection_fd;
@@ -195,19 +197,24 @@ int connection_handler(int sockfd){
         if(strcmp(userid, "")==0){
           printf("Please first login!\n");
         } else{
-
+          post_handler(sockfd);
+          printf("[Info]Post Success!\n");
         }
     } else if(strcmp(op, "lspost")==0){
         if(strcmp(userid, "")==0){
           printf("Please first login!\n");
         } else{
-
+          memset(buf, '\0', MAX_SIZE);
+          read(sockfd, buf, MAX_SIZE);
+          printf("%s\n", buf);
         }
     } else if(strcmp(op, "readpost")==0){
         if(strcmp(userid, "")==0){
           printf("Please first login!\n");
         } else{
-
+          memset(buf, '\0', MAX_SIZE);
+          read(sockfd, buf, MAX_SIZE);
+          printf("%s\n", buf);
         }
     } else if(strcmp(op, "chat")==0){
         if(strcmp(userid, "")==0){
@@ -238,18 +245,14 @@ int connection_handler(int sockfd){
 
 void login_handler(int sockfd){
     char buf[MAX_SIZE];
-    //struct sockaddr_in user_tcp_addr;
-    //socklen_t len;
-
-    //len = sizeof(user_tcp_addr);
 
     memset(buf, '\0', MAX_SIZE);
 
-    //getsockname(sockfd, (struct sockaddr *) &user_tcp_addr, &len);
+
 
     sprintf(buf, "%s\n%d\n%d\n", inet_ntoa(chat_svr_addr.sin_addr), ntohs(chat_svr_addr.sin_port) - OFFSET, ntohs(cli_udp_addr.sin_port));
 
-    //printf("Login port:%d\n", ntohs(chat_svr_addr.sin_port));
+
 
     write(sockfd, buf, strlen(buf));
     sleep(1);
@@ -429,5 +432,60 @@ void broadcast_handler(int sockfd){
   printf("%s\n", recv_line);
 
   return;
+
+}
+
+void post_handler(int sockfd){
+  char buf[MAX_SIZE];
+  char line[MAX_SIZE];
+  char cur_time[MAX_SIZE];
+
+  time_t epoch;
+
+  memset(buf, '\0', MAX_SIZE);
+  memset(line, '\0', MAX_SIZE);
+  memset(cur_time, '\0', MAX_SIZE);
+
+  printf("[Info] Posts can not exceed 1800 words!\n");
+  printf("[Info] Type endpost to end the posts!\n");
+
+  printf("Topic:");
+  fgets(buf, MAX_SIZE, stdin);
+
+  if(strcmp(buf, "endpost")==0){
+    printf("User end the post!\n");
+    return;
+  } else{
+    write(sockfd, buf, strlen(buf));   // pass the topic
+    sleep(1);
+  }
+
+  printf("Content:");
+
+  while(fgets(line, MAX_SIZE, stdin)){
+    if(strcmp(line, "endpost\n")==0){
+      printf("User end the post!\n");
+      if(strlen(buf) > 1800){
+        printf("Posts exceed 2048 words!\n");
+        printf("Post failed!\n");
+        return;
+      }
+
+      epoch = time(NULL);
+      sprintf(cur_time, "At: %s\n", asctime(localtime(&epoch)));
+      sprintf(buf, "%s\nEditor ID:%s\nIP From:%s:%d\n%s", buf, userid, inet_ntoa(chat_svr_addr.sin_addr), ntohs(chat_svr_addr.sin_port) - OFFSET, cur_time);
+
+      //printf("%s\n", buf);
+      write(sockfd, buf, strlen(buf));
+      sleep(2);
+      return;
+    }
+    strcat(buf, line);
+
+    memset(line, '\0', MAX_SIZE);
+  }
+
+
+
 
 }

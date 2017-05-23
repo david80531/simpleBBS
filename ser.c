@@ -9,6 +9,8 @@
 #include <string.h>
 #include <sys/select.h>
 #include <errno.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #define MAX_SIZE 2048
 #define MAX_LINE 256
@@ -22,14 +24,19 @@ typedef  struct {
   struct sockaddr_in addr, udp_addr;
 } USER;
 
+
 //global parameter
 USER user[20];
 
+int posts = 0;
 int connection_handler(int, int);
 void login_handler(char[], int);
 void lsuser_handler(int);
 void chat_handler(int, char[]);
 void broadcast_handler(int, char[]);
+void post_handler(int);
+void post_listing_handler(int);
+void post_reading_handler(int, char[]);
 
 int main(int argc, char **argv){
   int listen_fd, connection_fd, client_fd, udp_fd;
@@ -45,12 +52,14 @@ int main(int argc, char **argv){
   int i;
   int max_fd;
 
+  char local_path[MAX_SIZE];
   char buf[MAX_SIZE];
   int read_bytes;
   int flag;
 
   //initialize
   memset(buf, '\0', MAX_SIZE);
+  memset(local_path, '\0', MAX_SIZE);
   for(i = 0; i < 20; i++){
     memset(user[i].id, '\0', 20);
     user[i].fd = -1;
@@ -102,7 +111,8 @@ int main(int argc, char **argv){
   printf("Welcome to BBS server\n");
   printf("Waiting for users...\n");
 
-
+  sprintf(local_path, "./server_storage");
+  mkdir(local_path, S_IRWXU|S_IRWXG|S_IROTH|S_IXOTH);
 
 
   // initialize
@@ -192,11 +202,13 @@ int connection_handler(int sockfd, int udp_fd){
     strcpy(op, cmd);
     login_handler(op, sockfd);
   } else if(strcmp(op, "post")==0){
-
+    post_handler(sockfd);
   } else if(strcmp(op, "lspost")==0){
-
+    post_listing_handler(sockfd);
   }else if(strcmp(op, "readpost")==0){
-
+    cmd = strtok(NULL, " \n");
+    strcpy(op, cmd);
+    post_reading_handler(sockfd, op);
   }else if(strcmp(op, "chat")==0){
     cmd = strtok(NULL, " \n");
     strcpy(op, cmd);
@@ -347,5 +359,126 @@ void broadcast_handler(int sockfd, char content[]){
   printf("Broadcast complete!\n");
 
   return;
+
+}
+
+void post_handler(int sockfd){
+  FILE *fp;
+
+  int read_bytes;
+  char buf[MAX_SIZE];
+
+  sleep(3);
+
+  memset(buf, '\0', MAX_SIZE);
+  read(sockfd, buf, MAX_SIZE);  //read the Topic
+
+  //sprintf(buf, "./server_storage/%d          %s.txt", posts, buf);
+  sprintf(buf, "./server_storage/%d.txt", posts++);
+  fp = fopen(buf, "wb");
+
+  if(fp){
+    memset(buf, '\0', MAX_SIZE);
+    read_bytes = read(sockfd, buf, MAX_SIZE);
+
+    if(read_bytes>0){
+      fwrite(&buf, sizeof(char), read_bytes, fp);
+    //  sleep(3);
+    }
+
+  } else{
+    perror("Allocate memory failed");
+    posts--;
+    return;
+  }
+  fclose(fp);
+  printf("Post Success!\n");
+
+  return;
+
+}
+
+
+void post_listing_handler(int sockfd) {
+  DIR* pDir;
+  struct dirent* pDirent = NULL;
+  char buf[MAX_SIZE];
+  char pass[MAX_SIZE];
+  char path[MAX_SIZE];
+  int i;
+
+  memset(pass, '\0', MAX_SIZE);
+  memset(path, '\0', MAX_SIZE);
+  memset(buf, '\0', MAX_SIZE);
+  printf("[INFO] List posts to client\n");
+  posts = 0;
+
+  strcpy(path, "./server_storage");
+  if((pDir=opendir(path))==NULL){
+    perror("open directory failed\n");
+    exit(1);
+  }
+  while((pDirent = readdir(pDir))!=NULL){
+    if(strcmp(pDirent->d_name, ".")==0||strcmp(pDirent->d_name, "..")==0) continue;
+
+    strcat(pDirent->d_name, "\n");
+    strcat(buf, pDirent->d_name);
+    posts++;
+  }
+    posts--;
+  printf("%d\n", posts);
+
+  if(posts > 0){
+    for(i = 0;i < strlen(buf); i++){
+      if(i<=9) continue;
+      pass[i-10] = buf[i];
+    }
+    printf("%s\n", pass);
+    if(write(sockfd, pass, strlen(buf))<0){
+      perror("Writing Failed\n");
+      exit(1);
+    }
+  } else{
+    strcpy(buf, "No body post yet!\n");
+    if(write(sockfd, buf, strlen(buf))<0){
+      perror("Writing Failed\n");
+      exit(1);
+    }
+  }
+
+  closedir(pDir);
+}
+
+void post_reading_handler(int sockfd, char filename[]){
+  FILE *fp;
+  char path[MAX_SIZE];
+  char buf[MAX_SIZE];
+  int write_bytes;
+
+  memset(path, '\0', MAX_SIZE);
+  memset(buf, '\0', MAX_SIZE);
+
+  strcpy(path, "./server_storage/");
+  strcat(path, filename);
+
+  fp = fopen(path, "rb");
+
+  if(fp){
+    printf("Send post to client\n");
+    write_bytes = fread(&buf, sizeof(char), MAX_SIZE, fp);
+    if(write(sockfd, buf, strlen(buf)) > 0){
+      printf("Send post success!\n");
+    }
+  }else{
+    printf("[ERROR] Can read the file!\n");
+  }
+
+  fclose(fp);
+
+  sleep(2);
+
+
+  return;
+
 
 }
